@@ -1,0 +1,59 @@
+{
+  "servers": [
+    {
+      "name": "local-server",
+      "connector": "ssh",
+      "host": "192.168.5.169",
+      "port": 22,
+      "username": "root",
+      "privateKeyPath": "${SSH_KEY_PATH}",
+      "logRootPath": "/home/docker/logs/fantomfite-admin/",
+      "description": "169测试服务器",
+      "default": true
+    },
+    {
+      "name": "pyinfra-server",
+      "connector": "pyinfra",
+      "host": "192.168.5.9",
+      "port": 22,
+      "username": "root",
+      "privateKeyPath": "${SSH_KEY_PATH}",
+      "logRootPath": "/home/web/docker/logs/fantomfite-admin/",
+      "description": "复用 pyinfra 连接的 5.9 测试服务器"
+    },
+    {
+      "name": "inventory-server",
+      "connector": "pyinfra",
+      "pyinfraHost": "root@192.168.5.20:22",
+      "pyinfraData": {
+        "ssh_key": "/root/.ssh/id_rsa"
+      },
+      "logRootPath": "/var/logs/app/",
+      "description": "已有 pyinfra 主机资产"
+    },
+    {
+      "name": "dev-local",
+      "connector": "local",
+      "logRootPath": "/tmp/logs/",
+      "description": "本机日志（开发/测试）",
+      "default": false
+    }
+  ],
+  "logLevels": ["info", "warn", "error", "debug"],
+  "logFilePattern": "{level}/log-{level}-{date}.{seq}.log",
+  "sshPool": {
+    "maxConnectionsPerServer": 3,
+    "connectionTimeout": 30000,
+    "idleTimeout": 300000,
+    "maxRetries": 2
+  },
+  "queryDefaults": {
+    "maxResults": 100,
+    "maxResultsLimit": 1000,
+    "maxReadLines": 500,
+    "maxReadLinesLimit": 5000,
+    "contextLines": 3,
+    "searchTimeout": 30000,
+    "defaultTailLines": 50
+  }
+}
