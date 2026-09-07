@@ -51,6 +51,7 @@ class SearchLogsRequest:
     context_lines: Optional[int] = None
     use_regex: Optional[bool] = None
     server: Optional[str] = None
+    env: Optional[str] = None
 
 
 @dataclass
@@ -58,6 +59,7 @@ class TailLogsRequest:
     server: Optional[str] = None
     level: Optional[str] = None
     lines: Optional[int] = None
+    env: Optional[str] = None
 
 
 @dataclass
@@ -67,6 +69,7 @@ class ReadLogFileRequest:
     start_line: Optional[int] = None
     end_line: Optional[int] = None
     max_lines: Optional[int] = None
+    env: Optional[str] = None
 
 
 @dataclass
@@ -75,3 +78,4 @@ class ListLogFilesRequest:
     level: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    env: Optional[str] = None

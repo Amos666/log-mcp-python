@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 
-from log_mcp.config import AppConfig
+from log_mcp.config import ServerInfo
 from log_mcp.executors.base import CommandExecutor
 from log_mcp.models import CommandResult
 
@@ -13,12 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 class LocalExecutor(CommandExecutor):
-    def __init__(self, config: AppConfig | None = None):
+    def __init__(self, config: object | None = None):
         # config 仅为与其他通道工厂签名统一；本地通道无连接配置
         self._config = config
-    def execute(self, server_name: str, command: str, timeout_ms: int) -> CommandResult:
+
+    def execute(self, server: ServerInfo, command: str, timeout_ms: int) -> CommandResult:
         timeout_s = max(timeout_ms / 1000.0, 0.1)
-        logger.debug("Executing local command for %s: %s", server_name, command)
+        logger.debug("Executing local command for %s: %s", server.uid, command)
         try:
             proc = subprocess.run(
                 ["sh", "-c", command],
