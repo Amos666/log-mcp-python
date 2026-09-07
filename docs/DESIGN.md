@@ -102,14 +102,15 @@ class CommandExecutor(ABC):
     """命令执行通道：把一段 shell 命令送到目标机器执行，拿回统一结果。"""
 
     @abstractmethod
-    def execute(self, server_name: str, command: str, timeout_ms: int) -> CommandResult: ...
+    def execute(self, server: ServerInfo, command: str, timeout_ms: int) -> CommandResult: ...
 
     def close(self) -> None: ...
 ```
 
 约定（对齐原版 `CommandExecutor` 语义）：
 
-- 输入只有 `(server_name, command, timeout_ms)`——**命令文本全通道唯一**，由 `service/commands.py` 统一生成，通道不掺入任何业务语义；
+- 输入为业务层解析好的 `ServerInfo`（含 name/env）+ `(command, timeout_ms)`——**命令文本全通道唯一**，由 `service/commands.py` 统一生成，通道不掺入任何业务语义；
+- 通道内部以 `server.uid`（`name@env`，default 环境即 `name`）管理连接：同一服务跨环境部署时连接/主机映射各自独立，互不串扰；
 - 输出统一 `CommandResult(exit_code, stdout, stderr)`；执行失败（连不上/超时）不抛异常，返回 `exit_code=-1`、错误信息进 `stderr`（与原版行为一致，业务层据此返回空结果）；
 - 通道自身管理连接生命周期（池、复用、健康检查、关闭钩子）。
 
@@ -137,7 +138,8 @@ class CommandExecutor(ABC):
 
 ### 5.1 config.py
 
-- dataclass：`ServerInfo`（name/host/port/username/private_key_path/log_root_path/description/is_default + **connector / pyinfra_host / pyinfra_data**）、`AppConfig`（servers/log_levels/log_file_pattern/ssh_pool/query_defaults 及带默认值的取值方法）。
+- dataclass：`ServerInfo`（name/host/port/username/private_key_path/log_root_path/description/is_default + **connector / env / pyinfra_host / pyinfra_data**）、`AppConfig`（servers/log_levels/log_file_pattern/ssh_pool/query_defaults 及带默认值的取值方法）。
+- **多环境**：`env` 缺省 `default`；`(name, env)` 是服务器的唯一键（加载时校验，大小写不敏感去重）。`resolve_server(name, env)` 解析规则：均有值 → 精确匹配；仅 name → 唯一同名服务器，同名多环境时依次尝试 `env=default`、`is_default`，仍歧义报错并列出可用环境；仅 env → 该环境默认服务器（否则第一台）；均无 → 默认服务器。
 - 加载顺序：`LOG_CONFIG` 环境变量 → `--config` 参数 → 默认 `config.json`（与原版 `LOG_CONFIG`/`log.config` 一致）。
 - `${VAR}` 占位符解析：正则替换，取值来源为环境变量（原版先系统属性后环境变量，Python 版统一为环境变量）。
 
@@ -175,10 +177,10 @@ class CommandExecutor(ABC):
 `LogService(executor, config)` 五个业务方法，流程统一为：
 
 ```
-解析 server (缺省→default 服务器) → 参数校验 → 文件名模式/日期推导 → 命令构建 → executor.execute → 解析 → 组装响应 dict
+解析 server (name+env → resolve_server, 缺省→default 服务器) → 参数校验 → 文件名模式/日期推导 → 命令构建 → executor.execute(server, command) → 解析 → 组装响应 dict
 ```
 
-文件名模式推导（`util.FilePatternResolver`）：`{level}/log-{level}-{date}.{seq}.log`，`{seq}` 枚举 0–9，日期为起止区间逐日展开（默认今天）——与原版一致。
+文件名模式推导（`util.FilePatternResolver`）：`{level}/log-{level}-{date}.{seq}.log`，`{seq}` 枚举 0–9，日期为起止区间逐日展开（默认今天）——与原版一致。查询类响应透出本次命中的 `env`。
 
 ### 5.7 tools.py
 
@@ -223,41 +225,46 @@ class Tool:
 {
   "servers": [
     // ① SSH 私钥通道（与原版字段完全兼容，可不写 connector）
+    //    env 标识环境：同一 name 可在多个环境各配置一条，(name, env) 唯一
     {
-      "name": "local-server",
+      "name": "fantomfite-admin",
       "connector": "ssh",
+      "env": "prod",
       "host": "192.168.5.169",
       "port": 22,
       "username": "root",
       "privateKeyPath": "${SSH_KEY_PATH}",
       "logRootPath": "/home/docker/logs/app/",
-      "description": "169测试服务器",
+      "description": "生产环境",
       "default": true
     },
-    // ② pyinfra 通道：直接给 host/user/key（等价信息由 pyinfra 建连）
+    // ①' 同名服务的另一个环境：调用时传 env=test 即可路由到这里
     {
-      "name": "pyinfra-server",
+      "name": "fantomfite-admin",
       "connector": "pyinfra",
+      "env": "test",
       "host": "192.168.5.9",
       "port": 22,
       "username": "root",
       "privateKeyPath": "${SSH_KEY_PATH}",
       "logRootPath": "/home/web/docker/logs/app/",
-      "description": "复用pyinfra连接的5.9服务器"
+      "description": "测试环境（复用pyinfra连接）"
     },
-    // ③ pyinfra 通道：直接复用已有主机 spec + 透传数据
+    // ② pyinfra 通道：直接复用已有主机 spec + 透传数据
     {
       "name": "inventory-server",
       "connector": "pyinfra",
+      "env": "test",
       "pyinfraHost": "root@192.168.5.20:22",
       "pyinfraData": { "ssh_key": "/root/.ssh/id_rsa" },
       "logRootPath": "/var/log/app/",
       "description": "已有pyinfra资产"
     },
-    // ④ 本地通道（开发/测试）
+    // ③ 本地通道（开发/测试）
     {
       "name": "dev-local",
       "connector": "local",
+      "env": "default",
       "logRootPath": "/tmp/logs/",
       "description": "本机日志",
       "default": true
@@ -270,19 +277,21 @@ class Tool:
 }
 ```
 
-规则：`connector` 缺省为 `ssh`；原版配置文件**原样可用**。
+规则：`connector` 缺省为 `ssh`；`env` 缺省为 `default`；原版配置文件**原样可用**。
 
-## 7. MCP 接口契约（与原版一致）
+## 7. MCP 接口契约（与原版一致，扩展 env）
 
 | 工具 | 参数 | 返回 |
 |---|---|---|
-| `list_servers` | — | `{servers:[{name,host,description,isDefault,status}]}` |
-| `list_log_files` | server?, level?, startDate?, endDate? | `{server,files:[{path,size,lastModified,level}],totalFiles}` |
-| `read_log_file` | **filePath**, server?, startLine?, endLine?, maxLines? | `{server,file,lines,totalLines}` |
-| `search_logs` | **keyword**, server?, levels?(默认[debug,info]), startDate?, endDate?, useRegex?, contextLines?(默认3), maxResults? | `{results:[{server,file,lineNumber,content,contextBefore,contextAfter}],summary:{totalMatches,serversQueried,serversFailed,searchTime}}` |
-| `tail_logs` | server?, level?(默认info), lines?(默认50) | `{server,file,lines,totalLines}` |
+| `list_servers` | — | `{servers:[{name,env,host,description,isDefault,connector,status}]}` |
+| `list_log_files` | server?, env?, level?, startDate?, endDate? | `{server,env,files:[{path,size,lastModified,level}],totalFiles}` |
+| `read_log_file` | **filePath**, server?, env?, startLine?, endLine?, maxLines? | `{server,env,file,lines,totalLines}` |
+| `search_logs` | **keyword**, server?, env?, levels?(默认[debug,info]), startDate?, endDate?, useRegex?, contextLines?(默认3), maxResults? | `{env,results:[{server,file,lineNumber,content,contextBefore,contextAfter}],summary:{totalMatches,serversQueried,serversFailed,searchTime}}` |
+| `tail_logs` | server?, env?, level?(默认info), lines?(默认50) | `{server,env,file,lines,totalLines}` |
 
 行为细节对齐：日期默认今天；读取行区间 `startLine..startLine+99`（无 endLine/maxLines 时）；`tools/call` 结果为 JSON 字符串文本节点。
+
+扩展：`env` 为可选的环境过滤参数（大小写不敏感），用于同一 `name` 跨环境部署时消歧；查询响应额外透出命中的 `env`（详见 5.1 的 `resolve_server` 规则）。
 
 ## 8. 安全设计
 
@@ -311,7 +320,10 @@ class Tool:
 | security | validators / shell 转义 | 恶意输入、路径穿越、元字符 |
 | service | commands / parser / pattern | 命令模板快照、grep 四种行格式与上下文算法 |
 | mcp | handler | JSON-RPC 各 method、错误码、通知无响应 |
+| config | env 解析 / 唯一性 | `resolve_server(name, env)` 各组合、uid、重复 (name, env) 拒绝 |
 | 集成 | local 通道全链路 | 临时目录造日志树 → `tools/call` 全部 5 工具 → 断言结构化结果（不依赖任何真实 SSH） |
+| 集成 | 同名多环境路由 | 同一 name 两 env（不同日志根目录），验证 env 参数路由与消歧报错 |
+| 集成 | pyinfra `@local` 通道 | 端到端行为与 local 通道一致 |
 
 ## 12. 目录结构
 
@@ -352,5 +364,7 @@ log-mcp-python/
     ├── test_commands.py
     ├── test_parser.py
     ├── test_handler.py
-    └── test_integration_local.py
+    ├── test_env.py
+    ├── test_integration_local.py
+    └── test_integration_pyinfra.py
 ```

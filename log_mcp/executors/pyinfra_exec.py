@@ -62,23 +62,23 @@ class PyInfraExecutor(CommandExecutor):
         state = State(inventory, config, check_for_changes=False)
         connect_all(state)
 
-        # 建立 server.name → Host 对象映射（按 spec 索引）
+        # 建立 server.uid → Host 对象映射（按 spec 索引）
         host_by_name = {host.name: host for host in inventory}
         for server in self._servers:
             spec = server.pyinfra_host or server.host
             host = host_by_name.get(spec)
             if host is None:
                 raise ValueError(f"pyinfra inventory 中未找到主机: {spec}")
-            self._hosts[server.name] = host
+            self._hosts[server.uid] = host
         self._state = state
         logger.info("pyinfra 通道已连接 %d 台主机", len(self._hosts))
 
-    def execute(self, server_name: str, command: str, timeout_ms: int) -> CommandResult:
-        host = self._hosts.get(server_name)
+    def execute(self, server: ServerInfo, command: str, timeout_ms: int) -> CommandResult:
+        host = self._hosts.get(server.uid)
         if host is None:
-            return CommandResult(-1, "", f"Error: no pyinfra host for server {server_name}")
+            return CommandResult(-1, "", f"Error: no pyinfra host for server {server.uid}")
         try:
-            logger.debug("Executing command via pyinfra on %s: %s", server_name, command)
+            logger.debug("Executing command via pyinfra on %s: %s", server.uid, command)
             status, output = host.run_shell_command(command, _timeout=timeout_ms / 1000.0)
             exit_code = 0 if status else 1
             return CommandResult(
@@ -87,7 +87,7 @@ class PyInfraExecutor(CommandExecutor):
                 output.stderr or "",
             )
         except Exception as exc:  # noqa: BLE001 - 失败降级为结果，与其他通道一致
-            logger.error("Error executing command via pyinfra on %s: %s", server_name, exc)
+            logger.error("Error executing command via pyinfra on %s: %s", server.uid, exc)
             return CommandResult(-1, "", f"Error: {exc}")
 
     def close(self) -> None:

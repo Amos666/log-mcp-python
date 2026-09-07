@@ -61,7 +61,7 @@ class LogService:
         )
         validate_context_lines(context_lines)
 
-        server = self._config.resolve_server(request.server)
+        server = self._config.resolve_server(request.server, request.env)
         use_regex = bool(request.use_regex)
 
         levels = request.levels or ["debug", "info"]
@@ -77,7 +77,7 @@ class LogService:
 
         started = time.monotonic()
         result = self._executor.execute(
-            server.name, command, self._config.search_timeout_ms()
+            server, command, self._config.search_timeout_ms()
         )
         duration_ms = int((time.monotonic() - started) * 1000)
 
@@ -87,6 +87,7 @@ class LogService:
         )
 
         return {
+            "env": server.env,
             "results": [entry.to_dict() for entry in entries],
             "summary": {
                 "totalMatches": len(entries),
@@ -100,7 +101,7 @@ class LogService:
     def tail_logs(self, request: TailLogsRequest) -> dict:
         validate_level(request.level)
 
-        server = self._config.resolve_server(request.server)
+        server = self._config.resolve_server(request.server, request.env)
         lines = request.lines if request.lines is not None else self._config.default_tail_lines()
         level = (request.level or "info").lower()
 
@@ -108,11 +109,12 @@ class LogService:
         full_path = f"{server.log_root_path.rstrip('/')}/{file_name}"
         command = commands.build_tail_command(full_path, lines)
 
-        result = self._executor.execute(server.name, command, _READ_TIMEOUT_MS)
+        result = self._executor.execute(server, command, _READ_TIMEOUT_MS)
         log_lines = parse_lines(result)
 
         return {
             "server": server.name,
+            "env": server.env,
             "file": file_name,
             "lines": log_lines,
             "totalLines": len(log_lines),
@@ -120,7 +122,7 @@ class LogService:
 
     # -------------------------------------------------------------------- read
     def read_log_file(self, request: ReadLogFileRequest) -> dict:
-        server = self._config.resolve_server(request.server)
+        server = self._config.resolve_server(request.server, request.env)
         full_path = build_full_path(server.log_root_path, request.file_path)
 
         start_line = request.start_line if request.start_line is not None else 1
@@ -132,11 +134,12 @@ class LogService:
             end_line = start_line + _DEFAULT_READ_SPAN - 1
 
         command = commands.build_read_command(full_path, start_line, end_line)
-        result = self._executor.execute(server.name, command, _READ_TIMEOUT_MS)
+        result = self._executor.execute(server, command, _READ_TIMEOUT_MS)
         log_lines = parse_lines(result)
 
         return {
             "server": server.name,
+            "env": server.env,
             "file": request.file_path,
             "lines": log_lines,
             "totalLines": len(log_lines),
@@ -144,17 +147,18 @@ class LogService:
 
     # ------------------------------------------------------------ list files
     def list_log_files(self, request: ListLogFilesRequest) -> dict:
-        server = self._config.resolve_server(request.server)
+        server = self._config.resolve_server(request.server, request.env)
         level = (request.level or "info").lower()
 
         level_dir = f"{server.log_root_path.rstrip('/')}/{level}"
         command = commands.build_list_files_command(level_dir)
 
-        result = self._executor.execute(server.name, command, _READ_TIMEOUT_MS)
+        result = self._executor.execute(server, command, _READ_TIMEOUT_MS)
         files = parse_find_output(result, server.log_root_path, level)
 
         return {
             "server": server.name,
+            "env": server.env,
             "files": files,
             "totalFiles": len(files),
         }
@@ -164,6 +168,7 @@ class LogService:
         servers = [
             {
                 "name": server.name,
+                "env": server.env,
                 "host": server.host,
                 "description": server.description,
                 "isDefault": server.is_default,

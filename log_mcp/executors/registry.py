@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
-from log_mcp.config import AppConfig
+from log_mcp.config import AppConfig, ServerInfo
 from log_mcp.executors.base import CommandExecutor
 from log_mcp.models import CommandResult
 
@@ -31,20 +31,16 @@ def register_executor(name: str, factory: ExecutorFactory) -> None:
 class ExecutorRouter(CommandExecutor):
     """按服务器配置的 connector 将命令分发到对应通道。"""
 
-    def __init__(self, config: AppConfig, executors: dict[str, CommandExecutor]):
-        self._config = config
+    def __init__(self, executors: dict[str, CommandExecutor]):
         self._executors = executors
 
-    def execute(self, server_name: str, command: str, timeout_ms: int) -> CommandResult:
-        server = self._config.get_server(server_name)
-        if server is None:
-            return CommandResult(-1, "", f"Error: Unknown server: {server_name}")
+    def execute(self, server: ServerInfo, command: str, timeout_ms: int) -> CommandResult:
         executor = self._executors.get(server.connector)
         if executor is None:
             return CommandResult(
                 -1, "", f"Error: no executor for connector '{server.connector}'"
             )
-        return executor.execute(server_name, command, timeout_ms)
+        return executor.execute(server, command, timeout_ms)
 
     def close(self) -> None:
         for executor in self._executors.values():
@@ -76,5 +72,4 @@ def create_executors(config: AppConfig) -> ExecutorRouter:
     }
     logger.info("Executors ready: %s", ", ".join(f"{k}({type(v).__name__})" for k, v in executors.items()))
 
-    router = ExecutorRouter(config, executors)
-    return router
+    return ExecutorRouter(executors)

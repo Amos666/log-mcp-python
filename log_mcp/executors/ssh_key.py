@@ -141,8 +141,9 @@ class SshKeyExecutor(CommandExecutor):
 
     def __init__(self, config: AppConfig):
         self._config = config
+        # 按 uid（name@env）建池：同一服务跨环境部署时连接各自独立
         self._pools = {
-            server.name: _ServerConnectionPool(
+            server.uid: _ServerConnectionPool(
                 server,
                 max_size=int(config.ssh_pool.get("maxConnectionsPerServer", 3)),
                 connection_timeout_ms=int(config.ssh_pool.get("connectionTimeout", 30000)),
@@ -151,21 +152,21 @@ class SshKeyExecutor(CommandExecutor):
             if server.connector == "ssh"
         }
 
-    def execute(self, server_name: str, command: str, timeout_ms: int) -> CommandResult:
-        pool = self._pools.get(server_name)
+    def execute(self, server: ServerInfo, command: str, timeout_ms: int) -> CommandResult:
+        pool = self._pools.get(server.uid)
         if pool is None:
-            return CommandResult(-1, "", f"Error: no ssh pool for server {server_name}")
+            return CommandResult(-1, "", f"Error: no ssh pool for server {server.uid}")
         client: Optional[paramiko.SSHClient] = None
         try:
             client = pool.borrow()
-            logger.debug("Executing command on %s: %s", server_name, command)
+            logger.debug("Executing command on %s: %s", server.uid, command)
             _, stdout, stderr = client.exec_command(command, timeout=timeout_ms / 1000.0)
             stdout_str = stdout.read().decode("utf-8", errors="replace")
             stderr_str = stderr.read().decode("utf-8", errors="replace")
             exit_code = stdout.channel.recv_exit_status()
             return CommandResult(exit_code, stdout_str, stderr_str)
         except Exception as exc:  # noqa: BLE001 - 失败降级为结果，与原版一致
-            logger.error("Error executing command on %s: %s", server_name, exc)
+            logger.error("Error executing command on %s: %s", server.uid, exc)
             return CommandResult(-1, "", f"Error: {exc}")
         finally:
             if client is not None:

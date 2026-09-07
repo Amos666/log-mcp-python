@@ -42,6 +42,8 @@ _LIST_SERVERS = Tool(
     handler=lambda params, svc: svc.list_servers(),
 )
 
+_INPUT_ENV = _str("Environment filter (e.g. dev/test/prod), selects the server when the same name exists in multiple envs")
+
 # ------------------------------------------------------------- list_log_files
 _LIST_LOG_FILES = Tool(
     name="list_log_files",
@@ -53,6 +55,7 @@ _LIST_LOG_FILES = Tool(
             "startDate": _str("Start date (YYYY-MM-DD)"),
             "endDate": _str("End date (YYYY-MM-DD)"),
             "server": _str("Target server"),
+            "env": _INPUT_ENV,
         },
         "required": [],
     },
@@ -62,6 +65,7 @@ _LIST_LOG_FILES = Tool(
             level=params.get("level"),
             start_date=params.get("startDate"),
             end_date=params.get("endDate"),
+            env=params.get("env"),
         )
     ),
 )
@@ -75,6 +79,7 @@ _READ_LOG_FILE = Tool(
         "properties": {
             "filePath": _str("Relative path to log file"),
             "server": _str("Target server"),
+            "env": _INPUT_ENV,
             "startLine": _int("Start line number"),
             "endLine": _int("End line number"),
             "maxLines": _int("Maximum lines to read"),
@@ -88,6 +93,7 @@ _READ_LOG_FILE = Tool(
             start_line=params.get("startLine"),
             end_line=params.get("endLine"),
             max_lines=params.get("maxLines"),
+            env=params.get("env"),
         )
     ),
 )
@@ -111,6 +117,7 @@ _SEARCH_LOGS = Tool(
             "contextLines": _int("Context lines"),
             "useRegex": {"type": "boolean", "description": "Use regex"},
             "server": _str("Target server"),
+            "env": _INPUT_ENV,
         },
         "required": ["keyword"],
     },
@@ -124,6 +131,7 @@ _SEARCH_LOGS = Tool(
             context_lines=params.get("contextLines"),
             use_regex=params.get("useRegex"),
             server=params.get("server"),
+            env=params.get("env"),
         )
     ),
 )
@@ -138,6 +146,7 @@ _TAIL_LOGS = Tool(
             "level": _str("Log level (default: info)"),
             "lines": _int("Number of lines (default: 50)"),
             "server": _str("Target server"),
+            "env": _INPUT_ENV,
         },
         "required": [],
     },
@@ -146,6 +155,7 @@ _TAIL_LOGS = Tool(
             server=params.get("server"),
             level=params.get("level"),
             lines=params.get("lines"),
+            env=params.get("env"),
         )
     ),
 )
